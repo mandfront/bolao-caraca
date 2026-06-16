@@ -211,16 +211,51 @@ export default async function MatchDetailPage({
         {isScheduled && (
           <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 animate-slide-up delay-500">
             <p className="text-[#6b7280] text-xs font-bold uppercase tracking-wider mb-3">Como pontuar</p>
+            <p className="text-[#4b5563] text-[11px] mb-3">Apenas o maior critério atingido vale.</p>
             <div className="space-y-2">
               {[
-                { pts: 5, label: 'Placar exato', color: 'text-[#F5C518]', bg: 'bg-[#F5C518]/10' },
-                { pts: 3, label: 'Vencedor ou empate', color: 'text-[#22c55e]', bg: 'bg-[#22c55e]/10' },
-                { pts: 2, label: 'Saldo de gols certo', color: 'text-[#3b82f6]', bg: 'bg-[#3b82f6]/10' },
-                { pts: 1, label: 'Gols de um time certos', color: 'text-[#9ca3af]', bg: 'bg-[#1f2937]' },
-              ].map(({ pts, label, color, bg }) => (
-                <div key={pts} className={`flex items-center gap-3 ${bg} rounded-xl px-3 py-2`}>
-                  <span className={`font-display text-2xl ${color} w-8 text-center`}>{pts}</span>
-                  <span className="text-[#9ca3af] text-xs">{label}</span>
+                {
+                  pts: 5,
+                  label: 'Placar exato',
+                  example: 'Real: 2×1 · Palpite: 2×1',
+                  color: 'text-[#F5C518]',
+                  bg: 'bg-[#F5C518]/10',
+                },
+                {
+                  pts: 3,
+                  label: 'Acertou o vencedor (ou empate)',
+                  example: 'Real: 2×1 · Palpite: 3×0 (ambos vitória mandante)',
+                  color: 'text-[#22c55e]',
+                  bg: 'bg-[#22c55e]/10',
+                },
+                {
+                  pts: 2,
+                  label: 'Errou vencedor mas acertou saldo',
+                  example: 'Real: 2×0 · Palpite: 0×2 (saldo |2| nos dois)',
+                  color: 'text-[#3b82f6]',
+                  bg: 'bg-[#3b82f6]/10',
+                },
+                {
+                  pts: 1,
+                  label: 'Errou tudo, mas acertou gols de um dos times',
+                  example: 'Real: 3×1 · Palpite: 3×0 (acertou os gols do mandante)',
+                  color: 'text-[#9ca3af]',
+                  bg: 'bg-[#1f2937]',
+                },
+                {
+                  pts: 0,
+                  label: 'Errou vencedor, saldo e gols',
+                  example: 'Real: 3×1 · Palpite: 0×2',
+                  color: 'text-[#4b5563]',
+                  bg: 'bg-[#0d1117]',
+                },
+              ].map(({ pts, label, example, color, bg }) => (
+                <div key={pts} className={`${bg} rounded-xl px-3 py-2.5`}>
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className={`font-display text-2xl ${color} w-8 text-center`}>{pts}</span>
+                    <span className="text-[#f9fafb] text-xs font-semibold flex-1">{label}</span>
+                  </div>
+                  <p className="text-[#6b7280] text-[10px] ml-11 leading-relaxed">{example}</p>
                 </div>
               ))}
             </div>

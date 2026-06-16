@@ -13,7 +13,7 @@ export default async function DashboardPage() {
   if (!user) redirect('/login')
 
   const admin = createAdminClient()
-  const [profileResult, groupsResult, liveMatchesResult, upcomingMatchesResult] = await Promise.all([
+  const [profileResult, groupsResult, liveMatchesResult, upcomingMatchesResult, recentResultsResult] = await Promise.all([
     getCurrentProfile(user.id),
     admin
       .from('group_members')
@@ -32,6 +32,22 @@ export default async function DashboardPage() {
       .gte('starts_at', new Date().toISOString())
       .order('starts_at')
       .limit(5),
+    // Últimos 5 palpites do usuário em jogos finalizados (últimas 48h)
+    admin
+      .from('predictions')
+      .select(`
+        id, home_score, away_score, points, exact_score, correct_winner,
+        match:matches!inner(
+          id, home_score, away_score, status, starts_at, phase,
+          home_team:teams!matches_home_team_id_fkey(name, short_name, flag_url),
+          away_team:teams!matches_away_team_id_fkey(name, short_name, flag_url)
+        )
+      `)
+      .eq('user_id', user.id)
+      .eq('match.status', 'finished')
+      .gte('match.starts_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+      .order('updated_at', { ascending: false })
+      .limit(5),
   ])
 
   const profile = profileResult
@@ -39,15 +55,38 @@ export default async function DashboardPage() {
   const groups = groupsResult.data?.map(m => m.group) ?? []
   const liveMatches = (liveMatchesResult.data ?? []) as unknown as Parameters<typeof LiveMatchCard>[0]['match'][]
   const upcomingMatches = (upcomingMatchesResult.data ?? []) as unknown as Parameters<typeof MatchCard>[0]['match'][]
+  const recentResults = (recentResultsResult.data ?? []) as unknown as Array<{
+    id: string
+    home_score: number
+    away_score: number
+    points: number
+    exact_score: boolean
+    correct_winner: boolean
+    match: {
+      id: string
+      home_score: number
+      away_score: number
+      starts_at: string
+      phase: string | null
+      home_team: { name: string; short_name: string | null; flag_url: string | null }
+      away_team: { name: string; short_name: string | null; flag_url: string | null }
+    }
+  }>
 
   const mainGroup = groups[0] as { id: string; name: string } | undefined
 
   let rankingPosition: number | null = null
+  let totalPoints = 0
   if (mainGroup) {
     const { data: rankingData } = await admin.rpc('calculate_group_ranking', { p_group_id: mainGroup.id })
     const idx = rankingData?.findIndex((r: { user_id: string }) => r.user_id === user.id)
-    if (idx !== undefined && idx >= 0) rankingPosition = idx + 1
+    if (idx !== undefined && idx >= 0) {
+      rankingPosition = idx + 1
+      totalPoints = rankingData?.[idx]?.total_points ?? 0
+    }
   }
+
+  const recentPoints = recentResults.reduce((sum, r) => sum + (r.points ?? 0), 0)
 
   return (
     <AppShell isAdmin={isAdmin}>
@@ -94,6 +133,75 @@ export default async function DashboardPage() {
             >
               Entrar em grupo
             </Link>
+          </div>
+        )}
+
+        {/* Últimos resultados (palpites encerrados nas últimas 48h) */}
+        {recentResults.length > 0 && (
+          <div className="animate-slide-up delay-150">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-[#f9fafb] font-bold text-sm">Seus Últimos Resultados</h3>
+                {recentPoints > 0 && (
+                  <p className="text-[#F5C518] text-xs mt-0.5">
+                    +{recentPoints} pts nas últimas 48h · Total: {totalPoints} pts
+                  </p>
+                )}
+              </div>
+              <Link href="/ranking" className="text-[#F5C518] text-xs font-semibold">Ranking →</Link>
+            </div>
+            <div className="space-y-2">
+              {recentResults.map((r) => {
+                const m = r.match
+                const ptColor =
+                  r.points >= 5 ? 'text-[#F5C518] bg-[#F5C518]/15 border-[#F5C518]/30' :
+                  r.points >= 3 ? 'text-[#22c55e] bg-[#22c55e]/15 border-[#22c55e]/30' :
+                  r.points >= 1 ? 'text-[#3b82f6] bg-[#3b82f6]/15 border-[#3b82f6]/30' :
+                  'text-[#6b7280] bg-[#1f2937] border-[#374151]'
+                const ptLabel =
+                  r.points >= 5 ? '🎯 EXATO!' :
+                  r.points >= 3 ? '✓ Acertou' :
+                  r.points >= 1 ? '~ Parcial' :
+                  '✗ Errou'
+
+                return (
+                  <Link key={r.id} href={`/jogos/${m.id}`} className="block">
+                    <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-3 hover:border-[#374151] transition-colors">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                          {m.home_team.flag_url && (
+                            <img src={m.home_team.flag_url} alt="" className="w-5 h-3 object-cover rounded-sm shrink-0" />
+                          )}
+                          <span className="text-[#f9fafb] text-xs font-semibold truncate">
+                            {m.home_team.short_name || m.home_team.name}
+                          </span>
+                        </div>
+                        <span className="font-display text-lg text-[#f9fafb] shrink-0">
+                          {m.home_score}–{m.away_score}
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
+                          <span className="text-[#f9fafb] text-xs font-semibold truncate">
+                            {m.away_team.short_name || m.away_team.name}
+                          </span>
+                          {m.away_team.flag_url && (
+                            <img src={m.away_team.flag_url} alt="" className="w-5 h-3 object-cover rounded-sm shrink-0" />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#6b7280]">
+                          Palpite: <span className="text-[#9ca3af] font-semibold">{r.home_score}–{r.away_score}</span>
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-lg border font-bold ${ptColor}`}>
+                          {ptLabel} · {r.points}pt{r.points !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
           </div>
         )}
 
