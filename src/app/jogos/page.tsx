@@ -8,17 +8,24 @@ import { EmptyState } from '@/components/ui/LoadingState'
 import { groupByDate, formatMatchDate } from '@/utils/date'
 import type { Match } from '@/types/match'
 
+const TZ = 'America/Sao_Paulo'
+
+function dayInBRT(dateStr: string): string {
+  // Retorna "YYYY-MM-DD" no horário de Brasília
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(dateStr))
+}
+
 function isToday(dateStr: string): boolean {
-  const d = new Date(dateStr)
-  const now = new Date()
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  return dayInBRT(dateStr) === dayInBRT(new Date().toISOString())
 }
 
 function isTomorrow(dateStr: string): boolean {
-  const d = new Date(dateStr)
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
-  return d.getFullYear() === tomorrow.getFullYear() && d.getMonth() === tomorrow.getMonth() && d.getDate() === tomorrow.getDate()
+  return dayInBRT(dateStr) === dayInBRT(tomorrow.toISOString())
 }
 
 export default async function JogosPage() {
