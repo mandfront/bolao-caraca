@@ -15,7 +15,12 @@ export async function GET(request: NextRequest) {
   try {
     const { data: matches, error } = await fetchAllWCMatches()
     if (error || !matches) {
-      return NextResponse.json({ error: error ?? 'Sem dados' }, { status: 500 })
+      // Não falha o cron — só não tem o que sincronizar agora
+      return NextResponse.json({
+        updated: 0,
+        finished: 0,
+        warning: error ?? 'Sem dados da API',
+      }, { status: 200 })
     }
 
     const supabase = createAdminClient()
@@ -24,10 +29,12 @@ export async function GET(request: NextRequest) {
     const errors: string[] = []
 
     for (const raw of matches) {
+      // Pula jogos sem times definidos (mata-mata futuro)
       if (!raw.homeTeam?.name || !raw.awayTeam?.name) continue
 
       try {
         const m = mapFDMatch(raw)
+        if (!m.external_id) continue
 
         const { data: existing } = await supabase
           .from('matches')
@@ -35,28 +42,38 @@ export async function GET(request: NextRequest) {
           .eq('api_match_id', m.external_id)
           .single()
 
+        // Respeita override manual — NUNCA sobrescreve
         if (!existing || existing.is_manual_override) continue
 
         const wasFinished = existing.status === 'finished'
         const nowFinished = m.status === 'finished'
 
-        await supabase.from('matches').update({
+        const { error: updErr } = await supabase.from('matches').update({
           status: m.status as 'scheduled' | 'live' | 'halftime' | 'finished' | 'postponed' | 'cancelled',
           home_score: m.home_score,
           away_score: m.away_score,
-          starts_at: m.starts_at, // UTC real do football-data.org
+          starts_at: m.starts_at,
           updated_at: new Date().toISOString(),
         }).eq('id', existing.id)
+
+        if (updErr) {
+          errors.push(`Update ${m.external_id}: ${updErr.message}`)
+          continue
+        }
 
         updated++
 
         if (!wasFinished && nowFinished) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.rpc as any)('recalculate_predictions_for_match', { p_match_id: existing.id })
-          finished++
+          const { error: rpcErr } = await (supabase.rpc as any)('recalculate_predictions_for_match', { p_match_id: existing.id })
+          if (rpcErr) {
+            errors.push(`Recalc ${m.external_id}: ${rpcErr.message}`)
+          } else {
+            finished++
+          }
         }
       } catch (err) {
-        errors.push(err instanceof Error ? err.message : 'Erro')
+        errors.push(err instanceof Error ? err.message : 'Erro desconhecido')
       }
     }
 

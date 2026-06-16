@@ -20,12 +20,24 @@ export function AdminMatchFormClient({ teams, match, mode }: AdminMatchFormClien
   const [error, setError] = useState('')
   const [recalculating, setRecalculating] = useState(false)
 
+  // Converte UTC ISO → "YYYY-MM-DDTHH:mm" em horário de Brasília para o input datetime-local
+  const utcToLocalInput = (utc: string | null | undefined): string => {
+    if (!utc) return ''
+    const d = new Date(utc)
+    // Formato pt-BR-CA-like: en-CA dá YYYY-MM-DD
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(d)
+    const get = (t: string) => fmt.find(p => p.type === t)?.value ?? '00'
+    return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+  }
+
   const [form, setForm] = useState({
     home_team_id: match?.home_team_id ?? '',
     away_team_id: match?.away_team_id ?? '',
-    starts_at: match?.starts_at
-      ? new Date(match.starts_at).toISOString().slice(0, 16)
-      : '',
+    starts_at: utcToLocalInput(match?.starts_at),
     phase: match?.phase ?? '',
     stadium: match?.stadium ?? '',
     status: match?.status ?? 'scheduled',
@@ -44,10 +56,16 @@ export function AdminMatchFormClient({ teams, match, mode }: AdminMatchFormClien
     setError('')
     setSaving(true)
     try {
+      // Converte "YYYY-MM-DDTHH:mm" (Brasília) → ISO UTC
+      // Adiciona explicitamente "-03:00" pra Date entender como horário de Brasília
+      const localToUtc = (local: string): string => {
+        return new Date(`${local}:00-03:00`).toISOString()
+      }
+
       const payload = {
         home_team_id: form.home_team_id,
         away_team_id: form.away_team_id,
-        starts_at: new Date(form.starts_at).toISOString(),
+        starts_at: localToUtc(form.starts_at),
         phase: form.phase || null,
         stadium: form.stadium || null,
         status: form.status,
