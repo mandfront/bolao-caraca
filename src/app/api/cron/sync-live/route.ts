@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
           status: m.status as 'scheduled' | 'live' | 'halftime' | 'finished' | 'postponed' | 'cancelled',
           home_score: m.home_score,
           away_score: m.away_score,
+          starts_at: m.starts_at, // UTC real do football-data.org
           updated_at: new Date().toISOString(),
         }).eq('id', existing.id)
 

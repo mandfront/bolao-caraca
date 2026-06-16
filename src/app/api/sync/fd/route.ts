@@ -24,12 +24,35 @@ export async function GET() {
         const homeId = await upsertTeam(supabase, m.home_team_name, m.home_team_short, m.home_team_crest)
         const awayId = await upsertTeam(supabase, m.away_team_name, m.away_team_short, m.away_team_crest)
 
-        const { data: existing } = await supabase
+        // 1. Procura por api_match_id
+        let { data: existing } = await supabase
           .from('matches')
-          .select('id, status, is_manual_override')
+          .select('id, status, is_manual_override, api_match_id')
           .eq('api_match_id', m.external_id)
           .single()
 
+        // 2. Fallback: procura por times + data (evita duplicar partidas manuais)
+        if (!existing) {
+          const dateStart = m.starts_at.substring(0, 10) // YYYY-MM-DD
+          const { data: byTeams } = await supabase
+            .from('matches')
+            .select('id, status, is_manual_override, api_match_id')
+            .eq('home_team_id', homeId)
+            .eq('away_team_id', awayId)
+            .gte('starts_at', `${dateStart}T00:00:00Z`)
+            .lte('starts_at', `${dateStart}T23:59:59Z`)
+            .single()
+
+          if (byTeams) {
+            existing = byTeams
+            // Vincula o api_match_id à partida existente para buscas futuras
+            if (!byTeams.api_match_id) {
+              await supabase.from('matches').update({ api_match_id: m.external_id }).eq('id', byTeams.id)
+            }
+          }
+        }
+
+        // Não sobrescreve partidas marcadas como override manual
         if (existing?.is_manual_override) { skipped++; continue }
 
         const matchData: TablesInsert<'matches'> = {
@@ -158,29 +181,54 @@ async function upsertTeam(
   const namePt = mapped?.name ?? nameEn.trim()
   const flagUrl = mapped?.flag ?? crestUrl
 
-  // Procura pelo nome PT primeiro
+  // 1. Procura por short_name (TLA) — único por seleção, evita duplicatas
+  if (tla) {
+    const { data: byTla } = await supabase
+      .from('teams')
+      .select('id, flag_url, name')
+      .eq('short_name', tla)
+      .limit(1)
+      .single()
+
+    if (byTla) {
+      // Atualiza nome PT e bandeira se necessário
+      const updates: { name?: string; flag_url?: string } = {}
+      if (byTla.name !== namePt) updates.name = namePt
+      if (flagUrl && !byTla.flag_url) updates.flag_url = flagUrl
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('teams').update(updates).eq('id', byTla.id)
+      }
+      return byTla.id
+    }
+  }
+
+  // 2. Procura por nome PT
   const { data: byPt } = await supabase
     .from('teams')
     .select('id, flag_url')
     .ilike('name', namePt)
+    .limit(1)
     .single()
 
   if (byPt) {
-    if (flagUrl && !byPt.flag_url) {
-      await supabase.from('teams').update({ flag_url: flagUrl, short_name: tla }).eq('id', byPt.id)
+    const updates: { flag_url?: string; short_name?: string } = {}
+    if (flagUrl && !byPt.flag_url) updates.flag_url = flagUrl
+    if (tla) updates.short_name = tla
+    if (Object.keys(updates).length > 0) {
+      await supabase.from('teams').update(updates).eq('id', byPt.id)
     }
     return byPt.id
   }
 
-  // Fallback: procura pelo nome EN original
+  // 3. Procura por nome EN
   const { data: byEn } = await supabase
     .from('teams')
     .select('id, flag_url')
     .ilike('name', nameEn.trim())
+    .limit(1)
     .single()
 
   if (byEn) {
-    // Atualiza para nome PT
     await supabase.from('teams').update({ name: namePt, flag_url: flagUrl, short_name: tla }).eq('id', byEn.id)
     return byEn.id
   }
