@@ -7,7 +7,6 @@ export const metadata: Metadata = {
     template: '%s | Bolão Caraça',
   },
   description: 'Bolão familiar privado da Copa do Mundo. Palpites, ranking e acompanhamento ao vivo.',
-  manifest: '/manifest.json',
   icons: {
     icon: [{ url: '/icon.png', type: 'image/png', sizes: '512x512' }],
     apple: [{ url: '/icon.png', sizes: '512x512' }],

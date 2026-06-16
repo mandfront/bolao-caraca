@@ -32,7 +32,7 @@ function LoginForm() {
           setError('Nome obrigatório')
           return
         }
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -40,7 +40,14 @@ function LoginForm() {
           },
         })
         if (error) throw error
-        setMessage('Verifique seu email para confirmar o cadastro!')
+        // Com confirmação desabilitada no Supabase, já entra direto
+        if (data.session) {
+          router.push('/dashboard')
+          router.refresh()
+        } else {
+          setMessage('Conta criada! Faça login para entrar.')
+          setTab('login')
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error

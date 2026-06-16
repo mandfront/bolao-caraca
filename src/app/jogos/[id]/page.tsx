@@ -25,7 +25,7 @@ export default async function MatchDetailPage({
   const isAdmin = profile?.role === 'admin'
   const admin = createAdminClient()
 
-  const [matchResult, eventsResult, lineupsResult] = await Promise.all([
+  const [matchResult, eventsResult, lineupsResult, membershipsResult] = await Promise.all([
     admin
       .from('matches')
       .select('*, home_team:teams!matches_home_team_id_fkey(*), away_team:teams!matches_away_team_id_fkey(*)')
@@ -40,6 +40,10 @@ export default async function MatchDetailPage({
       .from('lineups')
       .select('*, players:player_lineups(*)')
       .eq('match_id', id),
+    admin
+      .from('group_members')
+      .select('group_id, group:groups(id, name)')
+      .eq('user_id', user.id),
   ])
 
   if (!matchResult.data) notFound()
@@ -47,49 +51,51 @@ export default async function MatchDetailPage({
   const match = matchResult.data as unknown as Match
   const events = (eventsResult.data ?? []) as Tables<'match_events'>[]
   const lineups = (lineupsResult.data ?? []) as (Tables<'lineups'> & { players: Tables<'player_lineups'>[] })[]
-
-  // Grupo do usuário
-  const { data: memberOf } = await admin
-    .from('group_members')
-    .select('group_id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single()
-
-  const groupId = memberOf?.group_id
-
-  let userPrediction: Tables<'predictions'> | null = null
-  let groupPredictions: (Tables<'predictions'> & { profile?: { name: string; avatar_url: string | null } })[] = []
-
-  if (groupId) {
-    const [myPred, allPreds] = await Promise.all([
-      admin
-        .from('predictions')
-        .select('*')
-        .eq('match_id', id)
-        .eq('user_id', user.id)
-        .eq('group_id', groupId)
-        .single(),
-      match.status !== 'scheduled'
-        ? admin
-            .from('predictions')
-            .select('*, profile:profiles(name, avatar_url)')
-            .eq('match_id', id)
-            .eq('group_id', groupId)
-        : Promise.resolve({ data: [] }),
-    ])
-    userPrediction = myPred.data
-    groupPredictions = (allPreds.data ?? []) as typeof groupPredictions
-  }
+  const groups = (membershipsResult.data ?? [])
+    .map(m => m.group as { id: string; name: string } | null)
+    .filter(Boolean) as { id: string; name: string }[]
 
   const matchLocked = !canPredict(match.status, match.starts_at)
+
+  // Busca palpites do usuário em todos os grupos + palpites de outros membros
+  type GroupData = {
+    group: { id: string; name: string }
+    userPrediction: Tables<'predictions'> | null
+    allPredictions: (Tables<'predictions'> & { profile?: { name: string; avatar_url: string | null } })[]
+  }
+
+  const groupsData: GroupData[] = await Promise.all(
+    groups.map(async (group) => {
+      const [myPred, allPreds] = await Promise.all([
+        admin
+          .from('predictions')
+          .select('*')
+          .eq('match_id', id)
+          .eq('user_id', user.id)
+          .eq('group_id', group.id)
+          .single(),
+        matchLocked
+          ? admin
+              .from('predictions')
+              .select('*, profile:profiles(name, avatar_url)')
+              .eq('match_id', id)
+              .eq('group_id', group.id)
+          : Promise.resolve({ data: [] }),
+      ])
+      return {
+        group,
+        userPrediction: myPred.data ?? null,
+        allPredictions: ((allPreds.data ?? []) as GroupData['allPredictions']),
+      }
+    })
+  )
+
   const homeLineup = lineups.find(l => l.team_id === match.home_team_id)
   const awayLineup = lineups.find(l => l.team_id === match.away_team_id)
   const isScheduled = match.status === 'scheduled'
   const hasEvents = events.length > 0
   const hasLineups = !!(homeLineup || awayLineup)
 
-  // Conta gols por time nos eventos
   const homeGoals = events.filter(e =>
     (e.event_type === 'goal' || e.event_type === 'penalty') && e.team_id === match.home_team_id
   )
@@ -114,12 +120,10 @@ export default async function MatchDetailPage({
 
       <div className="px-4 pt-4 pb-6 max-w-2xl mx-auto space-y-4">
 
-        {/* Placar principal */}
         <div className="animate-slide-up">
           <Scoreboard match={match} large />
         </div>
 
-        {/* Info do jogo (para jogos futuros) */}
         {isScheduled && (
           <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 animate-slide-up delay-100">
             <div className="grid grid-cols-2 gap-3 text-center">
@@ -141,19 +145,16 @@ export default async function MatchDetailPage({
           </div>
         )}
 
-        {/* Palpite / formulário */}
+        {/* Palpites por grupo */}
         <div className="animate-slide-up delay-200">
           <MatchDetailClient
             match={match}
-            groupId={groupId ?? null}
-            userPrediction={userPrediction}
-            groupPredictions={groupPredictions}
+            groupsData={groupsData}
             currentUserId={user.id}
             matchLocked={matchLocked}
           />
         </div>
 
-        {/* Gols marcados (se houver eventos) */}
         {hasEvents && (homeGoals.length > 0 || awayGoals.length > 0) && (
           <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 animate-slide-up delay-300">
             <p className="text-[#6b7280] text-xs font-bold uppercase tracking-wider mb-3">Gols</p>
@@ -178,21 +179,15 @@ export default async function MatchDetailPage({
           </div>
         )}
 
-        {/* Timeline de eventos */}
         {hasEvents && (
           <div className="animate-slide-up delay-300">
             <h3 className="text-[#f9fafb] font-bold text-sm mb-3">Eventos do Jogo</h3>
             <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4">
-              <MatchTimeline
-                events={events}
-                homeTeamId={match.home_team_id}
-                awayTeamId={match.away_team_id}
-              />
+              <MatchTimeline events={events} homeTeamId={match.home_team_id} awayTeamId={match.away_team_id} />
             </div>
           </div>
         )}
 
-        {/* Escalações */}
         {hasLineups ? (
           <div className="animate-slide-up delay-400">
             <h3 className="text-[#f9fafb] font-bold text-sm mb-3">Escalações</h3>
@@ -209,7 +204,6 @@ export default async function MatchDetailPage({
           </div>
         )}
 
-        {/* Sistemas de pontuação (para jogos agendados) */}
         {isScheduled && (
           <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 animate-slide-up delay-500">
             <p className="text-[#6b7280] text-xs font-bold uppercase tracking-wider mb-3">Como pontuar</p>
