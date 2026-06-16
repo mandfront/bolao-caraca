@@ -1,0 +1,234 @@
+import { redirect, notFound } from 'next/navigation'
+import { createClient, getCurrentProfile, createAdminClient } from '@/lib/supabase/server'
+import { AppShell, TopBar } from '@/components/Navigation'
+import { Scoreboard } from '@/components/matches/Scoreboard'
+import { MatchTimeline } from '@/components/matches/MatchTimeline'
+import { LineupSection } from '@/components/matches/LineupSection'
+import { MatchDetailClient } from '@/components/matches/MatchDetailClient'
+import { canPredict } from '@/utils/match-status'
+import { formatDateTime } from '@/utils/date'
+import type { Match } from '@/types/match'
+import type { Tables } from '@/types/database'
+import Link from 'next/link'
+
+export default async function MatchDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const profile = await getCurrentProfile(user.id)
+  const isAdmin = profile?.role === 'admin'
+  const admin = createAdminClient()
+
+  const [matchResult, eventsResult, lineupsResult] = await Promise.all([
+    admin
+      .from('matches')
+      .select('*, home_team:teams!matches_home_team_id_fkey(*), away_team:teams!matches_away_team_id_fkey(*)')
+      .eq('id', id)
+      .single(),
+    admin
+      .from('match_events')
+      .select('*')
+      .eq('match_id', id)
+      .order('minute'),
+    admin
+      .from('lineups')
+      .select('*, players:player_lineups(*)')
+      .eq('match_id', id),
+  ])
+
+  if (!matchResult.data) notFound()
+
+  const match = matchResult.data as unknown as Match
+  const events = (eventsResult.data ?? []) as Tables<'match_events'>[]
+  const lineups = (lineupsResult.data ?? []) as (Tables<'lineups'> & { players: Tables<'player_lineups'>[] })[]
+
+  // Grupo do usuário
+  const { data: memberOf } = await admin
+    .from('group_members')
+    .select('group_id')
+    .eq('user_id', user.id)
+    .limit(1)
+    .single()
+
+  const groupId = memberOf?.group_id
+
+  let userPrediction: Tables<'predictions'> | null = null
+  let groupPredictions: (Tables<'predictions'> & { profile?: { name: string; avatar_url: string | null } })[] = []
+
+  if (groupId) {
+    const [myPred, allPreds] = await Promise.all([
+      admin
+        .from('predictions')
+        .select('*')
+        .eq('match_id', id)
+        .eq('user_id', user.id)
+        .eq('group_id', groupId)
+        .single(),
+      match.status !== 'scheduled'
+        ? admin
+            .from('predictions')
+            .select('*, profile:profiles(name, avatar_url)')
+            .eq('match_id', id)
+            .eq('group_id', groupId)
+        : Promise.resolve({ data: [] }),
+    ])
+    userPrediction = myPred.data
+    groupPredictions = (allPreds.data ?? []) as typeof groupPredictions
+  }
+
+  const matchLocked = !canPredict(match.status, match.starts_at)
+  const homeLineup = lineups.find(l => l.team_id === match.home_team_id)
+  const awayLineup = lineups.find(l => l.team_id === match.away_team_id)
+  const isScheduled = match.status === 'scheduled'
+  const hasEvents = events.length > 0
+  const hasLineups = !!(homeLineup || awayLineup)
+
+  // Conta gols por time nos eventos
+  const homeGoals = events.filter(e =>
+    (e.event_type === 'goal' || e.event_type === 'penalty') && e.team_id === match.home_team_id
+  )
+  const awayGoals = events.filter(e =>
+    (e.event_type === 'goal' || e.event_type === 'penalty') && e.team_id === match.away_team_id
+  )
+
+  return (
+    <AppShell isAdmin={isAdmin}>
+      <TopBar
+        title={`${match.home_team?.short_name ?? '?'} × ${match.away_team?.short_name ?? '?'}`}
+        showBack
+        action={isAdmin ? (
+          <Link
+            href={`/admin/partidas/${id}`}
+            className="text-xs text-[#F5C518] bg-[#F5C518]/10 px-3 py-1.5 rounded-xl border border-[#F5C518]/25"
+          >
+            Editar
+          </Link>
+        ) : undefined}
+      />
+
+      <div className="px-4 pt-4 pb-6 max-w-2xl mx-auto space-y-4">
+
+        {/* Placar principal */}
+        <div className="animate-slide-up">
+          <Scoreboard match={match} large />
+        </div>
+
+        {/* Info do jogo (para jogos futuros) */}
+        {isScheduled && (
+          <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 animate-slide-up delay-100">
+            <div className="grid grid-cols-2 gap-3 text-center">
+              <div>
+                <p className="text-[#4b5563] text-xs mb-1">Data e hora</p>
+                <p className="text-[#f9fafb] text-sm font-semibold">{formatDateTime(match.starts_at)}</p>
+              </div>
+              <div>
+                <p className="text-[#4b5563] text-xs mb-1">Fase</p>
+                <p className="text-[#f9fafb] text-sm font-semibold">{match.phase ?? '—'}</p>
+              </div>
+              {match.stadium && (
+                <div className="col-span-2">
+                  <p className="text-[#4b5563] text-xs mb-1">Estádio</p>
+                  <p className="text-[#f9fafb] text-sm font-semibold">📍 {match.stadium}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Palpite / formulário */}
+        <div className="animate-slide-up delay-200">
+          <MatchDetailClient
+            match={match}
+            groupId={groupId ?? null}
+            userPrediction={userPrediction}
+            groupPredictions={groupPredictions}
+            currentUserId={user.id}
+            matchLocked={matchLocked}
+          />
+        </div>
+
+        {/* Gols marcados (se houver eventos) */}
+        {hasEvents && (homeGoals.length > 0 || awayGoals.length > 0) && (
+          <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 animate-slide-up delay-300">
+            <p className="text-[#6b7280] text-xs font-bold uppercase tracking-wider mb-3">Gols</p>
+            <div className="flex gap-4">
+              <div className="flex-1 space-y-1">
+                {homeGoals.map((e, i) => (
+                  <p key={i} className="text-[#f9fafb] text-xs">
+                    ⚽ <span className="font-semibold">{e.player_name}</span>
+                    <span className="text-[#4b5563] ml-1">{e.minute}'</span>
+                  </p>
+                ))}
+              </div>
+              <div className="flex-1 space-y-1 text-right">
+                {awayGoals.map((e, i) => (
+                  <p key={i} className="text-[#f9fafb] text-xs">
+                    <span className="text-[#4b5563] mr-1">{e.minute}'</span>
+                    <span className="font-semibold">{e.player_name}</span> ⚽
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Timeline de eventos */}
+        {hasEvents && (
+          <div className="animate-slide-up delay-300">
+            <h3 className="text-[#f9fafb] font-bold text-sm mb-3">Eventos do Jogo</h3>
+            <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4">
+              <MatchTimeline
+                events={events}
+                homeTeamId={match.home_team_id}
+                awayTeamId={match.away_team_id}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Escalações */}
+        {hasLineups ? (
+          <div className="animate-slide-up delay-400">
+            <h3 className="text-[#f9fafb] font-bold text-sm mb-3">Escalações</h3>
+            <div className="space-y-3">
+              {homeLineup && <LineupSection lineup={homeLineup} teamName={match.home_team.name} />}
+              {awayLineup && <LineupSection lineup={awayLineup} teamName={match.away_team.name} />}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 text-center animate-slide-up delay-400">
+            <p className="text-3xl mb-2">📋</p>
+            <p className="text-[#6b7280] text-sm font-medium">Escalação ainda não divulgada</p>
+            <p className="text-[#4b5563] text-xs mt-1">Geralmente disponível 1h antes do jogo</p>
+          </div>
+        )}
+
+        {/* Sistemas de pontuação (para jogos agendados) */}
+        {isScheduled && (
+          <div className="bg-[#111827] border border-[#1f2937] rounded-2xl p-4 animate-slide-up delay-500">
+            <p className="text-[#6b7280] text-xs font-bold uppercase tracking-wider mb-3">Como pontuar</p>
+            <div className="space-y-2">
+              {[
+                { pts: 5, label: 'Placar exato', color: 'text-[#F5C518]', bg: 'bg-[#F5C518]/10' },
+                { pts: 3, label: 'Vencedor ou empate', color: 'text-[#22c55e]', bg: 'bg-[#22c55e]/10' },
+                { pts: 2, label: 'Saldo de gols certo', color: 'text-[#3b82f6]', bg: 'bg-[#3b82f6]/10' },
+                { pts: 1, label: 'Gols de um time certos', color: 'text-[#9ca3af]', bg: 'bg-[#1f2937]' },
+              ].map(({ pts, label, color, bg }) => (
+                <div key={pts} className={`flex items-center gap-3 ${bg} rounded-xl px-3 py-2`}>
+                  <span className={`font-display text-2xl ${color} w-8 text-center`}>{pts}</span>
+                  <span className="text-[#9ca3af] text-xs">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </AppShell>
+  )
+}
