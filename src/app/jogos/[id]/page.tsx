@@ -7,6 +7,7 @@ import { LineupSection } from '@/components/matches/LineupSection'
 import { MatchDetailClient } from '@/components/matches/MatchDetailClient'
 import { canPredict } from '@/utils/match-status'
 import { formatDateTime } from '@/utils/date'
+import { AutoRefresh } from '@/components/matches/AutoRefresh'
 import type { Match } from '@/types/match'
 import type { Tables } from '@/types/database'
 import Link from 'next/link'
@@ -106,7 +107,7 @@ export default async function MatchDetailPage({
   return (
     <AppShell isAdmin={isAdmin}>
       <TopBar
-        title={`${match.home_team?.short_name ?? '?'} × ${match.away_team?.short_name ?? '?'}`}
+        title={`${match.home_team?.short_name || match.home_team?.name || 'Mandante'} × ${match.away_team?.short_name || match.away_team?.name || 'Visitante'}`}
         showBack
         action={isAdmin ? (
           <Link
@@ -117,6 +118,9 @@ export default async function MatchDetailPage({
           </Link>
         ) : undefined}
       />
+
+      {/* Auto-refresh quando jogo está ao vivo */}
+      <AutoRefresh enabled={match.status === 'live' || match.status === 'halftime'} intervalMs={60000} />
 
       <div className="px-4 pt-4 pb-6 max-w-2xl mx-auto space-y-4">
 

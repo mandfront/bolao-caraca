@@ -1,29 +1,31 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createClient, getCurrentProfile } from '@/lib/supabase/server'
+import { createClient, getCurrentProfile, createAdminClient } from '@/lib/supabase/server'
 import { AppShell, TopBar } from '@/components/Navigation'
 import { MatchCard } from '@/components/matches/MatchCard'
 import { LiveMatchCard } from '@/components/matches/LiveMatchCard'
 import { EmptyState } from '@/components/ui/LoadingState'
+import { AutoRefresh } from '@/components/matches/AutoRefresh'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const admin = createAdminClient()
   const [profileResult, groupsResult, liveMatchesResult, upcomingMatchesResult] = await Promise.all([
     getCurrentProfile(user.id),
-    supabase
+    admin
       .from('group_members')
       .select('group:groups(id, name)')
       .eq('user_id', user.id)
       .limit(1),
-    supabase
+    admin
       .from('matches')
       .select('*, home_team:teams!matches_home_team_id_fkey(*), away_team:teams!matches_away_team_id_fkey(*)')
       .in('status', ['live', 'halftime'])
       .order('starts_at'),
-    supabase
+    admin
       .from('matches')
       .select('*, home_team:teams!matches_home_team_id_fkey(*), away_team:teams!matches_away_team_id_fkey(*)')
       .eq('status', 'scheduled')
@@ -42,7 +44,7 @@ export default async function DashboardPage() {
 
   let rankingPosition: number | null = null
   if (mainGroup) {
-    const { data: rankingData } = await supabase.rpc('calculate_group_ranking', { p_group_id: mainGroup.id })
+    const { data: rankingData } = await admin.rpc('calculate_group_ranking', { p_group_id: mainGroup.id })
     const idx = rankingData?.findIndex((r: { user_id: string }) => r.user_id === user.id)
     if (idx !== undefined && idx >= 0) rankingPosition = idx + 1
   }
@@ -50,6 +52,9 @@ export default async function DashboardPage() {
   return (
     <AppShell isAdmin={isAdmin}>
       <TopBar title="Bolão Caraça" />
+
+      {/* Auto-refresh quando houver jogos ao vivo */}
+      <AutoRefresh enabled={liveMatches.length > 0} intervalMs={60000} />
 
       <div className="px-4 pt-4 pb-6 max-w-2xl mx-auto space-y-6">
         {/* Welcome */}

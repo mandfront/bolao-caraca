@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient, getCurrentProfile, createAdminClient } from '@/lib/supabase/server'
 import { AppShell, TopBar } from '@/components/Navigation'
 import { GroupInviteCard } from '@/components/groups/GroupInviteCard'
+import { LeaveGroupButton } from '@/components/groups/LeaveGroupButton'
 import { RankingTable } from '@/components/ranking/RankingTable'
 import { MatchCard } from '@/components/matches/MatchCard'
 import { EmptyState } from '@/components/ui/LoadingState'
@@ -186,6 +187,16 @@ export default async function GroupDetailPage({
               )
             })}
           </div>
+        </div>
+
+        {/* Sair do grupo */}
+        <div className="pt-4 border-t border-[#1f2937]">
+          <LeaveGroupButton
+            groupId={group.id}
+            groupName={group.name}
+            isCreator={group.created_by === user.id}
+            memberCount={members.length}
+          />
         </div>
       </div>
     </AppShell>

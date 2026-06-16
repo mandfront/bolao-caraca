@@ -1,6 +1,7 @@
 import type { Match } from '@/types/match'
 import { getStatusLabel } from '@/utils/match-status'
 import { LiveBadge } from '@/components/ui/Badge'
+import { formatMatchTime } from '@/utils/date'
 
 interface ScoreboardProps {
   match: Match
@@ -8,21 +9,31 @@ interface ScoreboardProps {
 }
 
 export function Scoreboard({ match, large }: ScoreboardProps) {
-  const isLive = match.status === 'live' || match.status === 'halftime'
+  const isLive = match.status === 'live'
+  const isHalftime = match.status === 'halftime'
   const isFinished = match.status === 'finished'
-  const hasScore = isLive || isFinished
+  const isLiveOrFinished = isLive || isHalftime || isFinished
+  const hasScore = isLiveOrFinished
 
   return (
-    <div className="bg-[#0d1117] rounded-2xl border border-[#1f2937] p-5">
+    <div className={`rounded-2xl border p-5 ${
+      isLive ? 'bg-[#0d1f12] border-[#22c55e]/40 shadow-[0_0_28px_rgba(34,197,94,0.15)]' :
+      isHalftime ? 'bg-[#1f1d0d] border-[#F5C518]/40' :
+      'bg-[#0d1117] border-[#1f2937]'
+    }`}>
       {/* Status */}
       <div className="flex items-center justify-center gap-3 mb-5">
         {isLive ? (
-          <LiveBadge />
+          <>
+            <LiveBadge />
+            {match.minute !== null && (
+              <span className="font-display text-lg text-[#22c55e]">{match.minute}&apos;</span>
+            )}
+          </>
+        ) : isHalftime ? (
+          <span className="text-[#F5C518] text-sm font-bold tracking-wider animate-pulse">⏸ INTERVALO</span>
         ) : (
           <span className="text-[#6b7280] text-sm font-medium">{getStatusLabel(match.status)}</span>
-        )}
-        {isLive && match.minute && (
-          <span className="font-display text-lg text-[#22c55e]">{match.minute}'</span>
         )}
       </div>
 
@@ -49,31 +60,30 @@ export function Scoreboard({ match, large }: ScoreboardProps) {
         <div className="flex flex-col items-center">
           {hasScore ? (
             <div className="flex items-center gap-3">
-              <span className={`font-display leading-none ${large ? 'text-7xl' : 'text-5xl'} text-[#f9fafb]`}>
+              <span className={`font-display leading-none ${large ? 'text-7xl' : 'text-5xl'} ${
+                match.home_score > match.away_score ? 'text-[#f9fafb]' : 'text-[#9ca3af]'
+              }`}>
                 {match.home_score}
               </span>
               <span className="text-[#374151] text-3xl">:</span>
-              <span className={`font-display leading-none ${large ? 'text-7xl' : 'text-5xl'} text-[#f9fafb]`}>
+              <span className={`font-display leading-none ${large ? 'text-7xl' : 'text-5xl'} ${
+                match.away_score > match.home_score ? 'text-[#f9fafb]' : 'text-[#9ca3af]'
+              }`}>
                 {match.away_score}
               </span>
             </div>
           ) : (
-            <div className="flex items-center gap-3 text-[#374151]">
-              <span className={`font-display leading-none ${large ? 'text-7xl' : 'text-5xl'}`}>-</span>
-              <span className="text-3xl">:</span>
-              <span className={`font-display leading-none ${large ? 'text-7xl' : 'text-5xl'}`}>-</span>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-[#F5C518] text-lg font-bold font-display">
+                {formatMatchTime(match.starts_at)}
+              </span>
+              <span className="text-[#6b7280] text-xs">vs</span>
             </div>
           )}
           {match.home_penalty_score !== null && match.away_penalty_score !== null && (
             <p className="text-[#6b7280] text-sm mt-1">
               ({match.home_penalty_score} : {match.away_penalty_score} pen.)
             </p>
-          )}
-          {match.phase && (
-            <p className="text-[#4b5563] text-xs mt-2 text-center">{match.phase}</p>
-          )}
-          {match.stadium && (
-            <p className="text-[#4b5563] text-xs mt-0.5 text-center">📍 {match.stadium}</p>
           )}
         </div>
 
