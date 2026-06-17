@@ -148,33 +148,18 @@ export async function GET() {
           .eq('api_match_id', match.external_id)
           .single()
 
-        // 2. Fallback: procura por times + fase (na fase de grupos cada par só joga 1 vez)
-        if (!existing && match.phase?.startsWith('Grupo')) {
+        // 2. Fallback: procura por times (mandante OU visitante de cada lado) + fase
+        if (!existing) {
           const { data: byTeams } = await supabase
             .from('matches')
-            .select('id, source, is_manual_override, api_match_id')
+            .select('id, source, is_manual_override, api_match_id, phase')
             .or(`and(home_team_id.eq.${homeTeamId},away_team_id.eq.${awayTeamId}),and(home_team_id.eq.${awayTeamId},away_team_id.eq.${homeTeamId})`)
-            .eq('phase', match.phase)
-            .limit(1)
-            .single()
+            .limit(5)
 
-          if (byTeams) existing = byTeams
-        }
-
-        // 3. Fallback adicional: mesma data + mesmos times
-        if (!existing) {
-          const dateStart = match.starts_at.substring(0, 10)
-          const { data: byDate } = await supabase
-            .from('matches')
-            .select('id, source, is_manual_override, api_match_id')
-            .eq('home_team_id', homeTeamId)
-            .eq('away_team_id', awayTeamId)
-            .gte('starts_at', `${dateStart}T00:00:00Z`)
-            .lte('starts_at', `${dateStart}T23:59:59Z`)
-            .limit(1)
-            .single()
-
-          if (byDate) existing = byDate
+          // Prefere o mesmo phase, senão pega o primeiro
+          const samePhase = byTeams?.find(m => m.phase === match.phase)
+          if (samePhase) existing = samePhase
+          else if (byTeams && byTeams.length > 0) existing = byTeams[0]
         }
 
         // Não sobrescreve manuais

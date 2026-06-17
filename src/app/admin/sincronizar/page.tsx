@@ -80,15 +80,6 @@ export default function SincronizarPage() {
       highlight: true,
     },
     {
-      key: 'copa',
-      label: 'Sincronizar via worldcup26.ir',
-      description: 'Alternativa gratuita sem chave (fuso pode variar)',
-      url: '/api/sync/copa',
-      method: 'GET',
-      icon: '🏆',
-      highlight: false,
-    },
-    {
       key: 'matches',
       label: 'Sincronizar via API-Football (Pago)',
       description: 'Requer plano pago — tem escalações e eventos',
