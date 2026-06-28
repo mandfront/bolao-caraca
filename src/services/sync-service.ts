@@ -6,7 +6,7 @@ import {
   fetchMatchLineups,
 } from './api-futebol'
 import { mapApiStatusToLocal } from '@/utils/match-status'
-import { calculatePredictionScore, getPredictedWinner } from '@/utils/scoring'
+import { calculatePredictionScore, calculatePenaltyBonus, getPredictedWinner } from '@/utils/scoring'
 import type { Json, Tables, TablesInsert, TablesUpdate } from '@/types/database'
 import type { ApiFutebolMatch } from '@/types/api-futebol'
 
@@ -301,7 +301,7 @@ export async function recalculateMatchScores(matchId: string): Promise<{ updated
 
   const { data: match } = await supabase
     .from('matches')
-    .select('id, home_score, away_score, status')
+    .select('id, home_score, away_score, status, home_penalty_score, away_penalty_score')
     .eq('id', matchId)
     .single()
 
@@ -318,9 +318,12 @@ export async function recalculateMatchScores(matchId: string): Promise<{ updated
 
   for (const prediction of predictions) {
     const result = calculatePredictionScore(prediction, match)
+    const penalty = calculatePenaltyBonus(prediction, match)
+    const totalPoints = result.points + penalty.points
+    const reason = penalty.correct ? `${result.reason} + acertou pênaltis` : result.reason
 
     await supabase.from('predictions').update({
-      points: result.points,
+      points: totalPoints,
       exact_score: result.exact_score,
       correct_winner: result.correct_winner,
       correct_goal_difference: result.correct_goal_difference,
@@ -333,8 +336,8 @@ export async function recalculateMatchScores(matchId: string): Promise<{ updated
       match_id: matchId,
       user_id: prediction.user_id,
       group_id: prediction.group_id,
-      points: result.points,
-      reason: result.reason,
+      points: totalPoints,
+      reason,
     })
 
     updated++

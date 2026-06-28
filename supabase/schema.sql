@@ -151,6 +151,7 @@ create table if not exists public.predictions (
   home_score integer not null,
   away_score integer not null,
   predicted_winner text not null check (predicted_winner in ('home', 'away', 'draw')),
+  penalty_advance text check (penalty_advance in ('home', 'away')),
   points integer not null default 0,
   exact_score boolean not null default false,
   correct_winner boolean not null default false,

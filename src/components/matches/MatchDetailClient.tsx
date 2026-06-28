@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { PredictionForm } from '@/components/predictions/PredictionForm'
+import { isKnockoutPhase, penaltyAdvancer } from '@/utils/phase'
 import type { Match } from '@/types/match'
 import type { Tables } from '@/types/database'
 
@@ -36,7 +37,17 @@ export function MatchDetailClient({
 
   const active = groupsData[activeIdx]
 
-  const handleSave = async (prediction: { home_score: number; away_score: number; predicted_winner: string }) => {
+  const isKnockout = isKnockoutPhase(match.phase)
+  const homeName = match.home_team.short_name || match.home_team.name
+  const awayName = match.away_team.short_name || match.away_team.name
+  const actualAdvancer = penaltyAdvancer(match.home_penalty_score, match.away_penalty_score)
+
+  const handleSave = async (prediction: {
+    home_score: number
+    away_score: number
+    predicted_winner: string
+    penalty_advance: 'home' | 'away' | null
+  }) => {
     const res = await fetch('/api/predictions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -117,6 +128,15 @@ export function MatchDetailClient({
                       <span className="text-[#F5C518] text-xs ml-1">(você)</span>
                     )}
                   </p>
+                  {isKnockout && pred.penalty_advance && (
+                    <p className={`text-[10px] truncate ${
+                      actualAdvancer == null ? 'text-[#4b5563]'
+                        : pred.penalty_advance === actualAdvancer ? 'text-[#22c55e]' : 'text-[#ef4444]'
+                    }`}>
+                      pênaltis: {pred.penalty_advance === 'home' ? homeName : awayName}
+                      {actualAdvancer != null && (pred.penalty_advance === actualAdvancer ? ' ✓' : ' ✗')}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="font-display text-xl text-[#f9fafb]">

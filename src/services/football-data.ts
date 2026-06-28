@@ -68,11 +68,13 @@ function mapStage(stage: string, group: string | null): string {
     return `Grupo ${group.replace('GROUP_', '')}`
   }
   const stages: Record<string, string> = {
-    ROUND_OF_32: 'Oitavas de Final',
+    LAST_32: 'Fase de 32',
+    ROUND_OF_32: 'Fase de 32',
+    LAST_16: 'Oitavas de Final',
     ROUND_OF_16: 'Oitavas de Final',
     QUARTER_FINALS: 'Quartas de Final',
     SEMI_FINALS: 'Semifinal',
-    THIRD_PLACE: 'Disputa 3º Lugar',
+    THIRD_PLACE: 'Disputa de 3º Lugar',
     FINAL: 'Final',
   }
   return stages[stage] ?? stage

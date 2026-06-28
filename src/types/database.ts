@@ -216,6 +216,7 @@ export type Database = {
           home_score: number
           away_score: number
           predicted_winner: 'home' | 'away' | 'draw'
+          penalty_advance: 'home' | 'away' | null
           points: number
           exact_score: boolean
           correct_winner: boolean
@@ -233,6 +234,7 @@ export type Database = {
           home_score: number
           away_score: number
           predicted_winner: 'home' | 'away' | 'draw'
+          penalty_advance?: 'home' | 'away' | null
           points?: number
           exact_score?: boolean
           correct_winner?: boolean
@@ -246,6 +248,7 @@ export type Database = {
           home_score?: number
           away_score?: number
           predicted_winner?: 'home' | 'away' | 'draw'
+          penalty_advance?: 'home' | 'away' | null
           points?: number
           exact_score?: boolean
           correct_winner?: boolean
