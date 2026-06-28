@@ -32,11 +32,14 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
     const body = await request.json()
-    const { match_id, group_id, home_score, away_score } = body
+    const { match_id, group_id, home_score, away_score, penalty_advance } = body
 
     if (!match_id || !group_id || home_score === undefined || away_score === undefined) {
       return NextResponse.json({ error: 'Campos obrigatórios faltando' }, { status: 400 })
     }
+
+    const penaltyAdvance: 'home' | 'away' | null =
+      penalty_advance === 'home' || penalty_advance === 'away' ? penalty_advance : null
 
     const admin = createAdminClient()
 
@@ -77,6 +80,7 @@ export async function POST(request: NextRequest) {
           home_score: Number(home_score),
           away_score: Number(away_score),
           predicted_winner: predictedWinner,
+          penalty_advance: penaltyAdvance,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'group_id,match_id,user_id' }

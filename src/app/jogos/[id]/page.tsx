@@ -6,6 +6,7 @@ import { MatchTimeline } from '@/components/matches/MatchTimeline'
 import { LineupSection } from '@/components/matches/LineupSection'
 import { MatchDetailClient } from '@/components/matches/MatchDetailClient'
 import { canPredict } from '@/utils/match-status'
+import { isKnockoutPhase } from '@/utils/phase'
 import { formatDateTime } from '@/utils/date'
 import { AutoRefresh } from '@/components/matches/AutoRefresh'
 import type { Match } from '@/types/match'
@@ -94,6 +95,7 @@ export default async function MatchDetailPage({
   const homeLineup = lineups.find(l => l.team_id === match.home_team_id)
   const awayLineup = lineups.find(l => l.team_id === match.away_team_id)
   const isScheduled = match.status === 'scheduled'
+  const isKnockout = isKnockoutPhase(match.phase)
   const hasEvents = events.length > 0
   const hasLineups = !!(homeLineup || awayLineup)
 
@@ -259,6 +261,18 @@ export default async function MatchDetailPage({
                 </div>
               ))}
             </div>
+
+            {isKnockout && (
+              <div className="bg-[#F5C518]/10 rounded-xl px-3 py-2.5 mt-2">
+                <div className="flex items-center gap-3 mb-1">
+                  <span className="font-display text-2xl text-[#F5C518] w-8 text-center">+2</span>
+                  <span className="text-[#f9fafb] text-xs font-semibold flex-1">Mata-mata: acertou quem passa nos pênaltis</span>
+                </div>
+                <p className="text-[#6b7280] text-[10px] ml-11 leading-relaxed">
+                  Bônus somado ao placar. Só conta se o jogo for decidido nos pênaltis.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

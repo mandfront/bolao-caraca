@@ -1,7 +1,10 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createClient, getCurrentProfile } from '@/lib/supabase/server'
 import { AppShell, TopBar } from '@/components/Navigation'
 import { createAdminClient } from '@/lib/supabase/server'
+import { StandingsTabs } from '@/components/classificacao/StandingsTabs'
+import { getKnockoutPhase, isKnockoutPhase, KNOCKOUT_PHASES, penaltyAdvancer } from '@/utils/phase'
 
 interface TeamStanding {
   team_id: string
@@ -170,6 +173,43 @@ async function getGroupStandings(): Promise<Record<string, TeamStanding[]>> {
   return Object.fromEntries(Object.entries(result).sort(([a], [b]) => a.localeCompare(b, 'pt-BR')))
 }
 
+type KnockoutMatch = {
+  id: string
+  phase: string | null
+  status: string
+  starts_at: string
+  home_score: number | null
+  away_score: number | null
+  home_penalty_score: number | null
+  away_penalty_score: number | null
+  home_team: { id: string; name: string; short_name: string | null; flag_url: string | null }
+  away_team: { id: string; name: string; short_name: string | null; flag_url: string | null }
+}
+
+async function getKnockoutMatches(): Promise<{ label: string; key: string; matches: KnockoutMatch[] }[]> {
+  const supabase = createAdminClient()
+
+  const { data } = await supabase
+    .from('matches')
+    .select(`
+      id, phase, status, starts_at, home_score, away_score, home_penalty_score, away_penalty_score,
+      home_team:teams!matches_home_team_id_fkey(id, name, short_name, flag_url),
+      away_team:teams!matches_away_team_id_fkey(id, name, short_name, flag_url)
+    `)
+    .not('status', 'in', '("cancelled")')
+    .order('starts_at')
+
+  const all = (data ?? []) as unknown as KnockoutMatch[]
+  const knockout = all.filter((m) => isKnockoutPhase(m.phase))
+
+  // Agrupa por fase canônica, na ordem oficial (Fase de 32 → Final)
+  return KNOCKOUT_PHASES.map((phase) => ({
+    label: phase.label,
+    key: phase.key,
+    matches: knockout.filter((m) => getKnockoutPhase(m.phase)?.key === phase.key),
+  })).filter((group) => group.matches.length > 0)
+}
+
 export default async function ClassificacaoPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -180,13 +220,19 @@ export default async function ClassificacaoPage() {
 
   const standings = await getGroupStandings()
   const groups = Object.entries(standings)
+  const knockoutGroups = await getKnockoutMatches()
 
   return (
     <AppShell isAdmin={isAdmin}>
       <TopBar title="Classificação" />
 
-      <div className="px-4 pt-4 pb-6 max-w-2xl mx-auto space-y-6">
-        {groups.length === 0 ? (
+      <div className="px-4 pt-4 pb-6 max-w-2xl mx-auto">
+        <StandingsTabs
+          hasKnockout={knockoutGroups.length > 0}
+          knockoutView={<KnockoutBracket groups={knockoutGroups} />}
+          groupsView={
+            <div className="space-y-6">
+              {groups.length === 0 ? (
           <div className="text-center py-16 text-[#4b5563]">
             <p className="text-4xl mb-3">📊</p>
             <p className="font-semibold text-[#6b7280]">Nenhuma partida finalizada ainda</p>
@@ -267,8 +313,136 @@ export default async function ClassificacaoPage() {
               </div>
             </div>
           ))
-        )}
+              )}
+            </div>
+          }
+        />
       </div>
     </AppShell>
+  )
+}
+
+function KnockoutBracket({
+  groups,
+}: {
+  groups: { label: string; key: string; matches: KnockoutMatch[] }[]
+}) {
+  if (groups.length === 0) {
+    return (
+      <div className="text-center py-16 text-[#4b5563]">
+        <p className="text-4xl mb-3">🏆</p>
+        <p className="font-semibold text-[#6b7280]">Mata-mata ainda não começou</p>
+        <p className="text-sm mt-1">Os jogos eliminatórios aparecem aqui quando forem cadastrados</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {groups.map((group, gi) => (
+        <div key={group.key} className="animate-slide-up" style={{ animationDelay: `${gi * 60}ms` }}>
+          <h2 className="text-[#F5C518] font-display text-xl tracking-wider mb-2">
+            {group.label.toUpperCase()}
+          </h2>
+          <div className="space-y-2">
+            {group.matches.map((m) => (
+              <KnockoutMatchCard key={m.id} match={m} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function KnockoutTeamRow({
+  team,
+  score,
+  pen,
+  isWinner,
+  hasPens,
+  showScore,
+}: {
+  team: { name: string; short_name: string | null; flag_url: string | null }
+  score: number | null
+  pen: number | null
+  isWinner: boolean
+  hasPens: boolean
+  showScore: boolean
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {team.flag_url ? (
+        <img src={team.flag_url} alt="" className="w-6 h-4 object-cover rounded-sm shrink-0" />
+      ) : (
+        <span className="text-sm">🏳️</span>
+      )}
+      <span className={`flex-1 text-sm font-semibold truncate ${isWinner ? 'text-[#f9fafb]' : 'text-[#9ca3af]'}`}>
+        {team.short_name || team.name}
+      </span>
+      {hasPens && pen !== null && (
+        <span className="text-[10px] text-[#6b7280]">({pen})</span>
+      )}
+      <span className={`w-5 text-right font-display text-lg ${isWinner ? 'text-[#F5C518]' : 'text-[#6b7280]'}`}>
+        {showScore ? score ?? 0 : '–'}
+      </span>
+    </div>
+  )
+}
+
+function KnockoutMatchCard({ match: m }: { match: KnockoutMatch }) {
+  const finished = m.status === 'finished'
+  const live = m.status === 'live' || m.status === 'halftime'
+  const advancer = penaltyAdvancer(m.home_penalty_score, m.away_penalty_score)
+  const hasPens = advancer !== null
+  const showScore = finished || live
+
+  // Quem avançou: pênaltis decidem; senão maior placar no tempo (se finalizado)
+  let winnerSide: 'home' | 'away' | null = null
+  if (hasPens) winnerSide = advancer
+  else if (finished && (m.home_score ?? 0) !== (m.away_score ?? 0)) {
+    winnerSide = (m.home_score ?? 0) > (m.away_score ?? 0) ? 'home' : 'away'
+  }
+
+  const dateLabel = new Date(m.starts_at).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  })
+
+  return (
+    <Link
+      href={`/jogos/${m.id}`}
+      className="block bg-[#111827] border border-[#1f2937] rounded-2xl px-3 py-2.5 hover:border-[#374151] transition-colors"
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] text-[#4b5563]">{dateLabel}</span>
+        {live ? (
+          <span className="text-[10px] font-bold text-[#ef4444]">● AO VIVO</span>
+        ) : finished ? (
+          <span className="text-[10px] font-semibold text-[#6b7280]">
+            {hasPens ? 'Pênaltis' : 'Encerrado'}
+          </span>
+        ) : (
+          <span className="text-[10px] text-[#4b5563]">Agendado</span>
+        )}
+      </div>
+      <div className="space-y-1">
+        <KnockoutTeamRow
+          team={m.home_team}
+          score={m.home_score}
+          pen={m.home_penalty_score}
+          isWinner={winnerSide === 'home'}
+          hasPens={hasPens}
+          showScore={showScore}
+        />
+        <KnockoutTeamRow
+          team={m.away_team}
+          score={m.away_score}
+          pen={m.away_penalty_score}
+          isWinner={winnerSide === 'away'}
+          hasPens={hasPens}
+          showScore={showScore}
+        />
+      </div>
+    </Link>
   )
 }

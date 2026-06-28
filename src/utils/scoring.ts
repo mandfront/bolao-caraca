@@ -1,5 +1,8 @@
 import type { ScoreResult } from '@/types/prediction'
-import type { Tables } from '@/types/database'
+import { penaltyAdvancer } from '@/utils/phase'
+
+// Bônus somado por acertar quem passa quando o jogo é decidido nos pênaltis.
+export const PENALTY_BONUS_POINTS = 2
 
 type PredictionInput = {
   home_score: number
@@ -96,4 +99,26 @@ export function getPredictedWinner(
   away: number
 ): 'home' | 'away' | 'draw' {
   return getWinner(home, away)
+}
+
+type PenaltyPrediction = {
+  penalty_advance?: 'home' | 'away' | null
+}
+
+type PenaltyMatch = {
+  home_penalty_score?: number | null
+  away_penalty_score?: number | null
+}
+
+// Bônus de pênaltis: só conta quando o jogo foi DE FATO decidido nos pênaltis
+// (placares de pênalti preenchidos e diferentes) e o palpiteiro acertou quem passou.
+export function calculatePenaltyBonus(
+  prediction: PenaltyPrediction,
+  match: PenaltyMatch
+): { points: number; correct: boolean } {
+  const actual = penaltyAdvancer(match.home_penalty_score, match.away_penalty_score)
+  if (!actual || !prediction.penalty_advance) return { points: 0, correct: false }
+
+  const correct = prediction.penalty_advance === actual
+  return { points: correct ? PENALTY_BONUS_POINTS : 0, correct }
 }
